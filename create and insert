@@ -1,0 +1,171 @@
+-- ====================================================================
+-- PHASE 1: CLEAN SLATE SETUP (Drops existing objects to avoid errors)
+-- ====================================================================
+DROP TABLE IF EXISTS group_membership CASCADE;
+DROP TABLE IF EXISTS study_group CASCADE;
+DROP TABLE IF EXISTS study_material CASCADE;
+DROP TABLE IF EXISTS session CASCADE;
+DROP TABLE IF EXISTS service CASCADE;
+DROP TABLE IF EXISTS student CASCADE;
+DROP TABLE IF EXISTS subject CASCADE;
+DROP TABLE IF EXISTS department CASCADE;
+DROP TYPE IF EXISTS session_status_type;
+
+-- ====================================================================
+-- PHASE 2: DATA STRUCTURE DEFINITIONS (Creating your Tables)
+-- ====================================================================
+CREATE TYPE session_status_type AS ENUM ('pending', 'confirmed', 'cancelled', 'completed');
+
+CREATE TABLE department (
+    department_id SERIAL PRIMARY KEY,
+    department_name VARCHAR(100) NOT NULL
+);
+
+CREATE TABLE subject (
+    subject_id SERIAL PRIMARY KEY,
+    subject_name VARCHAR(100) NOT NULL,
+    department_id INT NOT NULL REFERENCES department(department_id) ON DELETE CASCADE
+);
+
+CREATE TABLE student (
+    student_id SERIAL PRIMARY KEY,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    bio TEXT,
+    registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE service (
+    service_id SERIAL PRIMARY KEY,
+    mentor_id INT NOT NULL REFERENCES student(student_id) ON DELETE CASCADE,
+    subject_id INT NOT NULL REFERENCES subject(subject_id) ON DELETE CASCADE,
+    service_type VARCHAR(100) NOT NULL,
+    description TEXT
+);
+
+CREATE TABLE session (
+    session_id SERIAL PRIMARY KEY,
+    mentor_id INT NOT NULL REFERENCES student(student_id),
+    student_id INT NOT NULL REFERENCES student(student_id),
+    service_id INT NOT NULL REFERENCES service(service_id) ON DELETE CASCADE,
+    scheduled_time TIMESTAMP NOT NULL,
+    actual_start_time TIMESTAMP,
+    actual_end_time TIMESTAMP,
+    session_status session_status_type DEFAULT 'pending',
+    meeting_link VARCHAR(255),
+    rating_by_student INT CHECK (rating_by_student BETWEEN 1 AND 5),
+    review_by_student TEXT,
+    CONSTRAINT chk_not_self_booking CHECK (mentor_id <> student_id)
+);
+
+CREATE TABLE study_material (
+    material_id SERIAL PRIMARY KEY,
+    uploader_id INT NOT NULL REFERENCES student(student_id) ON DELETE CASCADE,
+    subject_id INT NOT NULL REFERENCES subject(subject_id) ON DELETE CASCADE,
+    title VARCHAR(150) NOT NULL,
+    description TEXT,
+    file_path_url VARCHAR(512) NOT NULL,
+    upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE study_group (
+    group_id SERIAL PRIMARY KEY,
+    group_name VARCHAR(150) NOT NULL,
+    description TEXT,
+    created_by_student_id INT NOT NULL REFERENCES student(student_id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE group_membership (
+    membership_id SERIAL PRIMARY KEY,
+    group_id INT NOT NULL REFERENCES study_group(group_id) ON DELETE CASCADE,
+    student_id INT NOT NULL REFERENCES student(student_id) ON DELETE CASCADE,
+    role VARCHAR(50) DEFAULT 'member',
+    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_group_user UNIQUE (group_id, student_id)
+);
+
+CREATE INDEX idx_session_scheduled ON session(scheduled_time);
+CREATE INDEX idx_student_email ON student(email);
+
+-- ====================================================================
+-- PHASE 3: MOCK REALISTIC SEED DATA (Populating the Tables)
+-- ====================================================================
+INSERT INTO department (department_name) VALUES 
+('Computer Science'),
+('Mathematics'),
+('Business & Finance');
+
+INSERT INTO subject (subject_name, department_id) VALUES 
+('Database Management Systems', (SELECT department_id FROM department WHERE department_name = 'Computer Science')),
+('Data Structures & Algorithms', (SELECT department_id FROM department WHERE department_name = 'Computer Science')),
+('Linear Algebra', (SELECT department_id FROM department WHERE department_name = 'Mathematics')),
+('Corporate Finance', (SELECT department_id FROM department WHERE department_name = 'Business & Finance'));
+
+INSERT INTO student (first_name, last_name, email, password_hash, bio) VALUES 
+('Alex', 'Mercer', 'alex@cognitrade.com', '$2b$10$xyzMockHashForAlexPassword', 'Computer Science sophomore specializing in system design.'),
+('Sarah', 'Connor', 'sarah@cognitrade.com', '$2b$10$xyzMockHashForSarahPassword', 'Math tutor with 3 years of classroom peer instruction experience.'),
+('David', 'Kim', 'david@cognitrade.com', '$2b$10$xyzMockHashForDavidPassword', 'Finance major looking to prepare for upcoming midterm exams.'),
+('Elena', 'Rostova', 'elena@cognitrade.com', '$2b$10$xyzMockHashForElenaPassword', 'Software engineer looking to learn SQL and systems analysis.');
+
+INSERT INTO service (mentor_id, subject_id, service_type, description) VALUES 
+(
+    (SELECT student_id FROM student WHERE email = 'alex@cognitrade.com'),
+    (SELECT subject_id FROM subject WHERE subject_name = 'Database Management Systems'),
+    '1-on-1 Code Review',
+    'Helping you build database schemas, normalize tables, and write optimized SQL joins.'
+),
+(
+    (SELECT student_id FROM student WHERE email = 'sarah@cognitrade.com'),
+    (SELECT subject_id FROM subject WHERE subject_name = 'Linear Algebra'),
+    'Exam Prep Boot Camp',
+    'Intensive review sessions focusing on matrix transformations and vector spaces.'
+);
+
+INSERT INTO session (mentor_id, student_id, service_id, scheduled_time, session_status, meeting_link) VALUES 
+(
+    (SELECT student_id FROM student WHERE email = 'alex@cognitrade.com'),
+    (SELECT student_id FROM student WHERE email = 'david@cognitrade.com'),
+    (SELECT service_id FROM service WHERE service_type = '1-on-1 Code Review'),
+    '2026-10-22 14:00:00',
+    'confirmed',
+    'https://jit.si'
+),
+(
+    (SELECT student_id FROM student WHERE email = 'sarah@cognitrade.com'),
+    (SELECT student_id FROM student WHERE email = 'elena@cognitrade.com'),
+    (SELECT service_id FROM service WHERE service_type = 'Exam Prep Boot Camp'),
+    '2026-10-24 10:30:00',
+    'pending',
+    NULL
+);
+
+INSERT INTO study_material (uploader_id, subject_id, title, description, file_path_url) VALUES 
+(
+    (SELECT student_id FROM student WHERE email = 'alex@cognitrade.com'),
+    (SELECT subject_id FROM subject WHERE subject_name = 'Database Management Systems'),
+    'ERD Cheatsheet & Normalization Guide',
+    'PDF summary reviewing 1NF, 2NF, 3NF, and multi-valued dependencies.',
+    '/uploads/materials/erd_guide_v1.pdf'
+);
+
+INSERT INTO study_group (group_name, description, created_by_student_id) VALUES 
+(
+    'SQL Wizards Study Group',
+    'A peer group dedicated to solving advanced relational algebra and indexing challenges.',
+    (SELECT student_id FROM student WHERE email = 'alex@cognitrade.com')
+);
+
+INSERT INTO group_membership (group_id, student_id, role) VALUES 
+(
+    (SELECT group_id FROM study_group WHERE group_name = 'SQL Wizards Study Group'),
+    (SELECT student_id FROM student WHERE email = 'alex@cognitrade.com'),
+    'moderator'
+),
+(
+    (SELECT group_id FROM study_group WHERE group_name = 'SQL Wizards Study Group'),
+    (SELECT student_id FROM student WHERE email = 'david@cognitrade.com'),
+    'member'
+);
