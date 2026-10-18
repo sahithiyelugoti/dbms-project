@@ -1,0 +1,10 @@
+{
+  "description": "Connect with peers and mentors at SVNIT for personalized learning, mentorship sessions, and academic progress tracking in a supportive community.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
