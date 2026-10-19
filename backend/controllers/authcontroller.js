@@ -1,44 +1,124 @@
-// controllers/authController.js
+
 const db = require('../config/db');
+const bcrypt = require('bcrypt');
 
 const authController = {
-  // Handles saving a brand-new student or tutor profile to the database
+  // Register a new student
   registerStudent: async (req, res) => {
     const { first_name, last_name, email, password, bio } = req.body;
 
-    // Basic Input Validation check
     if (!first_name || !last_name || !email || !password) {
-      return res.status(400).json({ error: "Missing required profile input values." });
+      return res.status(400).json({
+        error: 'Missing required profile input values.'
+      });
     }
 
     try {
-      // 1. Check if the user email already exists in our relational system
-      const userCheck = await db.query('SELECT * FROM student WHERE email = \$1;', [email]);
+      const userCheck = await db.query(
+        'SELECT student_id FROM student WHERE email = $1',
+        [email]
+      );
+
       if (userCheck.rowCount > 0) {
-        return res.status(409).json({ error: "A user account with this email address already exists." });
+        return res.status(409).json({
+          error: 'An account with this email already exists.'
+        });
       }
 
-      // NOTE FOR PROJECT EVALUATION: In a production app, you would hash this password 
-      // using the bcrypt package before inserting it into the database!
-      const placeholderHash = `hashed_${password}`;
+      const passwordHash = await bcrypt.hash(password, 10);
 
-      // 2. Execute a raw SQL parameterized INSERT query to save the user securely
       const insertQuery = `
-        INSERT INTO student (first_name, last_name, email, password_hash, bio)
+        INSERT INTO student
+          (first_name, last_name, email, password_hash, bio)
         VALUES ($1, $2, $3, $4, $5)
-        RETURNING student_id, first_name, last_name, email, registration_date;
+        RETURNING
+          student_id,
+          first_name,
+          last_name,
+          email,
+          bio,
+          registration_date;
       `;
-      
-      const newStudent = await db.query(insertQuery, [first_name, last_name, email, placeholderHash, bio || null]);
 
-      // 3. Return the newly created record data back to the client browser app
+      const result = await db.query(insertQuery, [
+        first_name,
+        last_name,
+        email,
+        passwordHash,
+        bio || null
+      ]);
+
       return res.status(201).json({
-        message: "User account created successfully inside PostgreSQL!",
-        user: newStudent.rows[0]
+        message: 'Account created successfully!',
+        user: result.rows[0]
       });
-
     } catch (err) {
-      return res.status(500).json({ error: "Internal Database execution fault.", details: err.message });
+      console.error('Registration error:', err.message);
+
+      return res.status(500).json({
+        error: 'Unable to create account.'
+      });
+    }
+  },
+
+  // Log in an existing student
+  loginStudent: async (req, res) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        error: 'Email and password are required.'
+      });
+    }
+
+    try {
+      const result = await db.query(
+        `SELECT
+           student_id,
+           first_name,
+           last_name,
+           email,
+           password_hash,
+           bio
+         FROM student
+         WHERE email = $1`,
+        [email]
+      );
+
+      if (result.rowCount === 0) {
+        return res.status(401).json({
+          error: 'Invalid email or password.'
+        });
+      }
+
+      const student = result.rows[0];
+
+      const passwordMatches = await bcrypt.compare(
+        password,
+        student.password_hash
+      );
+
+      if (!passwordMatches) {
+        return res.status(401).json({
+          error: 'Invalid email or password.'
+        });
+      }
+
+      const {
+        password_hash,
+        ...user
+      } = student;
+
+      return res.status(200).json({
+        message: 'Login successful!',
+        user
+      });
+    } catch (err) {
+      console.error('Login error:', err.message);
+
+      return res.status(500).json({
+        error: 'Unable to log in.'
+      });
     }
   }
 };
